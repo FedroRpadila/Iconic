@@ -1,151 +1,103 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import pickle
+import joblib # type: ignore
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+scaler = joblib.load('scaler.pkl')
+model = joblib.load('credit_default.pkl')
+
+st.title('Prediksi Default Loan Customer')
+
+Name  = st.text_input('Name', placeholder='Input Your Name..')
+
+# Streamlit input widgets
+GENDER = st.radio("Jenis Kelamin", ["Laki-laki", "Perempuan"])
+AGE = st.slider('Umur (Tahun)', 0, 130, 20)
+Type_Occupation = st.selectbox(
+    "Jenis Pekerjaan",
+    ("High skill tech staff", 'Core staff', 'Sales staff', 'Laborers',
+     'Cooking staff', 'Managers', 'Accountants', 'Cleaning staff', 'Drivers',
+     'Private service staff', 'Low-skill Laborers', 'IT staff',
+     'Waiters/barmen staff', 'Medicine staff', 'Security staff', 'HR staff',
+     'Secretaries', 'Realty agents'),
+    placeholder="Pilih Pekerjaanmu...",
+)
+Marital_status = st.selectbox(
+    "Status Pernikahan",
+    ('Married', 'Single / not married', 'Civil marriage', 'Separated', 'Widow'),
+    placeholder="Pilih Jenis Pendapatanmu...",
+)
+Family_Members = st.slider('Jumlah Anggota Keluarga', 0, 20, 2)
+Type_Income = st.selectbox(
+    "Jenis Pendapatan",
+    ('Commercial associate', 'Pensioner', 'Working', 'State servant'),
+    placeholder="Pilih Jenis Pendapatanmu...",
+)
+YEAR_EMPLOYED = st.slider('Lama Bekerja (Tahun)', 0, 60, 5)
+EDUCATION = st.selectbox(
+    "Pendidikan",
+    ('Higher education', 'Secondary / secondary special', 'Lower secondary',
+     'Incomplete higher', 'Academic degree'),
+    placeholder="Pilih Pendidikan Terakhirmu...",
+)
+Housing_type = st.selectbox(
+    "Tipe Rumah",
+    ('House / apartment', 'With parents', 'Rented apartment',
+     'Municipal apartment', 'Co-op apartment', 'Office apartment'),
+    placeholder="Pilih Tipe Rumahmu...",
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# Mapping dictionaries
+Housing_type_map = {
+    'House / apartment': 0, 'Rented apartment': 1, 'With parents': 2,
+    'Municipal apartment': 3, 'Co-op apartment': 4, 'Office apartment': 5
+}
+EDUCATION_map = {
+    'Higher education': 0, 'Secondary / secondary special': 1, 'Lower secondary': 2,
+    'Incomplete higher': 3, 'Academic degree': 4
+}
+Type_Occupation_map = {
+    'Private service staff': 0, 'Laborers': 1, 'Managers': 2, 'Medicine staff': 3,
+    'Cooking staff': 4, 'Sales staff': 5, 'Accountants': 6, 'High skill tech staff': 7,
+    'Cleaning staff': 8, 'Drivers': 9, 'Low-skill Laborers': 10, 'IT staff': 11,
+    'Waiters/barmen staff': 12, 'Core staff': 13, 'Security staff': 14, 'HR staff': 15,
+    'Secretaries': 16, 'Realty agents': 17
+}
+GENDER_map = {'Laki-laki': 1, 'Perempuan': 0}
+Marital_status_map = {
+    'Married': 0, 'Single / not married': 1, 'Civil marriage': 2, 'Separated': 3, 'Widow': 4
+}
+Type_Income_map = {
+    'Commercial associate': 0, 'Pensioner': 1, 'Working': 2, 'State servant': 3
+}
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+df = pd.DataFrame()
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+if st.button('Prediksi Loan Customer'):
+    Name = Name
+    Housing_type_value = Housing_type_map[Housing_type]
+    EDUCATION_value = EDUCATION_map[EDUCATION]
+    Type_Occupation_value = Type_Occupation_map[Type_Occupation]
+    GENDER_value = GENDER_map[GENDER]
+    Marital_status_value = Marital_status_map[Marital_status]
+    Type_Income_value = Type_Income_map[Type_Income]
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+    card_credit = [YEAR_EMPLOYED, Type_Occupation_value, Marital_status_value, Type_Income_value, AGE, EDUCATION_value, GENDER_value, Housing_type_value, Family_Members]
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[gdp_df['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[gdp_df['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
+    df = pd.DataFrame([card_credit], columns=['YEAR_EMPLOYED', 'Type_Occupation', 'Marital_status', 'Type_Income', 'AGE', 'EDUCATION', 'GENDER', 'Housing_type', 'Family_Members'])
+    if not df.empty:
+        c_scaler = scaler.transform(df.values.reshape(1, -1))
+        
+        loan_prediction = model.predict(c_scaler)
+        
+        if loan_prediction[0] == 1:
+            loan_diagnose = f"Pengajuan Kartu Kredit Atas Nama {Name} Ditolak"
         else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+            loan_diagnose = f"Pengajuan Kartu Kredit Atas Nama {Name} Diterima"
+        
+        if loan_prediction[0] == 1:
+            st.error(loan_diagnose, icon="❌")
+        else:
+            st.success(loan_diagnose, icon="✅")
+    else:
+        st.error("Harap isi semua form terlebih dahulu.")
